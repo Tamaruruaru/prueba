@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador Planta Externa - Cd. Juárez</title>
+    <style>
+        :root {
+            --primary: #00a8ff;
+            --bg: #121212;
+            --card: #1e1e1e;
+            --text: #e0e0e0;
+        }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; }
+        .container { width: 100%; max-width: 550px; background: var(--card); padding: 30px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h2 { color: var(--primary); text-align: center; margin-bottom: 5px; }
+        .subtitle { text-align: center; font-size: 0.85em; color: #888; margin-bottom: 25px; }
+        
+        label { display: block; margin-bottom: 8px; font-weight: bold; font-size: 0.9em; color: var(--primary); }
+        select, input { width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #333; background: #252525; color: white; box-sizing: border-box; }
+        
+        button { width: 100%; padding: 15px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: 0.3s; }
+        button:hover { background: #0086cc; transform: translateY(-2px); }
+        button:disabled { background: #444; cursor: not-allowed; }
+
+        #progress-container { margin-top: 20px; display: none; }
+        .progress-bar { width: 100%; background: #333; border-radius: 10px; height: 10px; overflow: hidden; }
+        #progress-fill { width: 0%; height: 100%; background: var(--primary); transition: width 0.3s; }
+        #status-text { font-size: 0.8em; color: #aaa; margin-top: 8px; text-align: center; }
+
+        #resultado { margin-top: 25px; padding: 20px; border-radius: 10px; background: #252525; display: none; border-left: 5px solid #44ff44; animation: fadeIn 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .res-line { margin-bottom: 8px; font-size: 0.95em; }
+        .res-val { color: #44ff44; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Scanner Planta Externa</h2>
+    <div class="subtitle">Inventario Sem 17 - Ciudad Juárez</div>
+
+    <label>Filtrar por OLT (Recomendado):</label>
+    <select id="oltSelect" onchange="updateCounter()">
+        <option value="TODAS">-- TODAS LAS OLT (Lento) --</option>
+    </select>
+
+    <label>Cuenta o Serie ONT:</label>
+    <input type="text" id="target" placeholder="Ej: 0114890781">
+
+    <button id="searchBtn" onclick="runSearch()">INICIAR ESCANEO</button>
+
+    <div id="progress-container">
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <div id="status-text">Preparando...</div>
+    </div>
+
+    <div id="resultado" id="resBox"></div>
+</div>
+
+<script>
+    let db = [];
+    let isSearching = false;
+
+    // Cargar base de datos
+    async function init() {
+        try {
+            const res = await fetch('datos_tps.json');
+            db = await res.json();
+            const olts = [...new Set(db.map(x => x.olt))].sort();
+            const select = document.getElementById('oltSelect');
+            olts.forEach(olt => {
+                let opt = document.createElement('option');
+                opt.value = olt;
+                opt.textContent = olt;
+                select.appendChild(opt);
+            });
+            updateCounter();
+        } catch (e) {
+            alert("Error al cargar datos_tps.json. Asegúrate de que el archivo esté en la misma carpeta.");
+        }
+    }
+
+    function updateCounter() {
+        const olt = document.getElementById('oltSelect').value;
+        const count = olt === "TODAS" ? db.length : db.filter(x => x.olt === olt).length;
+        document.getElementById('status-text').innerText = `Total de TPs a revisar: ${count}`;
+    }
+
+    async function runSearch() {
+        if (isSearching) return;
+        const target = document.getElementById('target').value.trim();
+        const olt = document.getElementById('oltSelect').value;
+        if (!target) return alert("Ingresa un dato a buscar");
+
+        const list = olt === "TODAS" ? db : db.filter(x => x.olt === olt);
+        
+        isSearching = true;
+        toggleUI(true);
+        
+        const resBox = document.getElementById('resultado');
+        resBox.style.display = "none";
+
+        const batchSize = 12; // Cantidad de peticiones simultáneas
+        for (let i = 0; i < list.length; i += batchSize) {
+            if (!isSearching) break;
+
+            const batch = list.slice(i, i + batchSize);
+            const percent = Math.round((i / list.length) * 100);
+            updateProgress(percent, `Buscando en ${batch[0].tp}... (${i}/${list.length})`);
+
+            const results = await Promise.all(batch.map(item => checkTP(item.tp, target)));
+            
+            const found = results.find(r => r !== null);
+            if (found) {
+                showFound(found.tp, found.data);
+                isSearching = false;
+                break;
+            }
+            // Pequeño delay para no saturar el servidor
+            await new Promise(r => setTimeout(r, 150));
+        }
+
+        if (isSearching) {
+            document.getElementById('status-text').innerText = "Búsqueda terminada sin éxito.";
+        }
+        toggleUI(false);
+    }
+
+    async function checkTP(tp, target) {
+        try {
+            // Usando el proxy /api-totalplay/ configurado en netlify.toml
+            const r = await fetch(`/api-totalplay/gsa/lite/v1/port/qr?qr=${tp}`);
+            const json = await r.json();
+            const ports = json.splitters[0]?.listmodelpuertos || [];
+            const match = ports.find(p => (p.cuenta && p.cuenta.includes(target)) || (p.serie && p.serie.includes(target)));
+            return match ? { tp, data: match } : null;
+        } catch (e) { return null; }
+    }
+
+    function showFound(tp, data) {
+        const resBox = document.getElementById('resultado');
+        resBox.style.display = "block";
+        resBox.innerHTML = `
+            <div class="res-line">📍 Caja: <span class="res-val">${tp}</span></div>
+            <div class="res-line">🔌 Puerto: <span class="res-val">${data.numeroPuerto}</span></div>
+            <div class="res-line">📄 Cuenta: <span class="res-val">${data.cuenta}</span></div>
+            <div class="res-line">🏠 Dir: <span class="res-val">${data.direccion || 'N/A'}</span></div>
+            <div class="res-line">🆔 Serie: <span class="res-val">${data.serie || 'N/A'}</span></div>
+        `;
+        document.getElementById('status-text').innerText = "¡Localizado!";
+        updateProgress(100, "Localizado");
+    }
+
+    function toggleUI(searching) {
+        document.getElementById('searchBtn').disabled = searching;
+        document.getElementById('progress-container').style.display = searching ? "block" : "block";
+    }
+
+    function updateProgress(p, text) {
+        document.getElementById('progress-fill').style.width = p + "%";
+        document.getElementById('status-text').innerText = text;
+    }
+
+    init();
+</script>
+
+</body>
+</html>

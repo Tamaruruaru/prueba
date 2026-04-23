@@ -1,0 +1,5 @@
+[[redirects]]
+  from = "/api-totalplay/*"
+  to = "https://apiservice.sistemastp.com.mx/:splat"
+  status = 200
+  force = true
