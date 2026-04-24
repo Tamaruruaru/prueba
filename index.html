@@ -85,44 +85,56 @@
         document.getElementById('status-text').innerText = `Total de TPs a revisar: ${count}`;
     }
 
-    async function runSearch() {
-        if (isSearching) return;
-        const target = document.getElementById('target').value.trim();
-        const olt = document.getElementById('oltSelect').value;
-        if (!target) return alert("Ingresa un dato a buscar");
+async function runSearch() {
+    if (isSearching) return;
+    
+    const target = document.getElementById('target').value.trim();
+    const olt = document.getElementById('oltSelect').value;
+    if (!target) return alert("Ingresa un dato a buscar");
 
-        const list = olt === "TODAS" ? db : db.filter(x => x.olt === olt);
+    const list = olt === "TODAS" ? db : db.filter(x => x.olt === olt);
+    
+    isSearching = true;
+    toggleUI(true);
+    
+    // Limpiar resultado previo
+    const resBox = document.getElementById('resultado');
+    resBox.style.display = "none";
+    resBox.innerHTML = ""; 
+
+    const batchSize = 10; 
+    for (let i = 0; i < list.length; i += batchSize) {
+        // CRITICAL: Si encontramos el resultado en un bloque anterior, salimos del bucle principal
+        if (!isSearching) break; 
+
+        const batch = list.slice(i, i + batchSize);
+        const percent = Math.round((i / list.length) * 100);
+        updateProgress(percent, `Escaneando bloque ${i}...`);
+
+        // Ejecutamos el bloque actual
+        const results = await Promise.all(batch.map(item => checkTP(item.tp, target)));
         
-        isSearching = true;
-        toggleUI(true);
+        // Revisamos si en ESTE bloque de 10 estuvo el cliente
+        const found = results.find(r => r !== null);
         
-        const resBox = document.getElementById('resultado');
-        resBox.style.display = "none";
-
-        const batchSize = 10; // Reducido ligeramente para mayor estabilidad con Google Apps Script
-        for (let i = 0; i < list.length; i += batchSize) {
-            if (!isSearching) break;
-
-            const batch = list.slice(i, i + batchSize);
-            const percent = Math.round((i / list.length) * 100);
-            updateProgress(percent, `Buscando en bloque... (${i}/${list.length})`);
-
-            const results = await Promise.all(batch.map(item => checkTP(item.tp, target)));
-            
-            const found = results.find(r => r !== null);
-            if (found) {
-                showFound(found.tp, found.data);
-                isSearching = false;
-                break;
-            }
-            await new Promise(r => setTimeout(r, 250)); // Aumentado a 250ms para respetar cuotas de Google
+        if (found) {
+            isSearching = false; // Detiene futuras peticiones
+            showFound(found.tp, found.data); // Muestra el cuadro verde de inmediato
+            updateProgress(100, "¡Cliente localizado!");
+            toggleUI(false);
+            return; // SALIDA INMEDIATA: No sigue barriendo el resto de los 18k
         }
 
-        if (isSearching) {
-            document.getElementById('status-text').innerText = "Búsqueda terminada sin éxito.";
-        }
-        toggleUI(false);
+        // Pequeño respiro para que el navegador no se trabe y actualice la barra
+        await new Promise(r => setTimeout(r, 50));
     }
+
+    if (isSearching) {
+        document.getElementById('status-text').innerText = "No se encontró en esta OLT.";
+        toggleUI(false);
+        isSearching = false;
+    }
+}
 
 async function checkTP(tp, target) {
     try {
