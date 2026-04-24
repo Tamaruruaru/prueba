@@ -124,26 +124,33 @@
         toggleUI(false);
     }
 
-        async function checkTP(tp, target) {
-            try {
-                const proxyURL = "https://script.google.com/macros/s/AKfycbyOd7Y8H96j_uIcLwESoJ3lWSUSxzSerESZrnzpIAemS4pRg_2o4HGinxuIG96Or6Lq/exec"; 
-                // Agregamos un timestamp para evitar que el navegador use datos viejos (cache)
-                const r = await fetch(`${proxyURL}?qr=${tp}&_=${new Date().getTime()}`);
-                
-                const text = await r.text();
-                const json = JSON.parse(text); // Esto ayuda a ver si Google mandó un error o el JSON
-                
-                const ports = json.splitters[0]?.listmodelpuertos || [];
-                const match = ports.find(p => 
-                    (p.cuenta && p.cuenta.includes(target)) || 
-                    (p.serie && p.serie.includes(target))
-                );
-                return match ? { tp, data: match } : null;
-            } catch (e) { 
-                console.error("Error en TP " + tp, e);
-                return null; 
-            }
-        }
+async function checkTP(tp, target) {
+    try {
+        // ASEGÚRATE QUE ESTA URL TERMINE EN /exec
+        const proxyURL = "https://script.google.com/macros/s/AKfycbwbUipfpDjYPE5EKTDvV6HPwlG-Plvg89PRU3SbFQUetugAwQhGD8BAvWISguJXSSeh/exec"; 
+        
+        const response = await fetch(`${proxyURL}?qr=${tp}`, {
+            method: 'GET',
+            mode: 'cors', // Forzamos modo CORS
+            credentials: 'omit'
+        });
+
+        if (!response.ok) return null;
+
+        const json = await response.json();
+        const ports = json.splitters?.[0]?.listmodelpuertos || [];
+        
+        const match = ports.find(p => 
+            (p.cuenta && p.cuenta.includes(target)) || 
+            (p.serie && p.serie.includes(target))
+        );
+        
+        return match ? { tp, data: match } : null;
+    } catch (e) { 
+        console.error("Error en TP: " + tp);
+        return null; 
+    }
+}
 
     function showFound(tp, data) {
         const resBox = document.getElementById('resultado');
