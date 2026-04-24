@@ -55,14 +55,12 @@
         <div id="status-text">Preparando...</div>
     </div>
 
-    <div id="resultado" id="resBox"></div>
+    <div id="resultado"></div>
 </div>
-
 <script>
     let db = [];
     let isSearching = false;
 
-    // Cargar base de datos
     async function init() {
         try {
             const res = await fetch('datos_tps.json');
@@ -77,7 +75,7 @@
             });
             updateCounter();
         } catch (e) {
-            alert("Error al cargar datos_tps.json. Asegúrate de que el archivo esté en la misma carpeta.");
+            console.error("Error al cargar datos_tps.json");
         }
     }
 
@@ -101,13 +99,13 @@
         const resBox = document.getElementById('resultado');
         resBox.style.display = "none";
 
-        const batchSize = 12; // Cantidad de peticiones simultáneas
+        const batchSize = 10; // Reducido ligeramente para mayor estabilidad con Google Apps Script
         for (let i = 0; i < list.length; i += batchSize) {
             if (!isSearching) break;
 
             const batch = list.slice(i, i + batchSize);
             const percent = Math.round((i / list.length) * 100);
-            updateProgress(percent, `Buscando en ${batch[0].tp}... (${i}/${list.length})`);
+            updateProgress(percent, `Buscando en bloque... (${i}/${list.length})`);
 
             const results = await Promise.all(batch.map(item => checkTP(item.tp, target)));
             
@@ -117,8 +115,7 @@
                 isSearching = false;
                 break;
             }
-            // Pequeño delay para no saturar el servidor
-            await new Promise(r => setTimeout(r, 150));
+            await new Promise(r => setTimeout(r, 250)); // Aumentado a 250ms para respetar cuotas de Google
         }
 
         if (isSearching) {
@@ -129,12 +126,15 @@
 
     async function checkTP(tp, target) {
         try {
-            // Usando el proxy /api-totalplay/ configurado en netlify.toml
             const proxyURL = "https://script.google.com/macros/s/AKfycbwbUipfpDjYPE5EKTDvV6HPwlG-Plvg89PRU3SbFQUetugAwQhGD8BAvWISguJXSSeh/exec"; 
             const r = await fetch(`${proxyURL}?qr=${tp}`);
             const json = await r.json();
             const ports = json.splitters[0]?.listmodelpuertos || [];
-            const match = ports.find(p => (p.cuenta && p.cuenta.includes(target)) || (p.serie && p.serie.includes(target)));
+            
+            const match = ports.find(p => 
+                (p.cuenta && p.cuenta.includes(target)) || 
+                (p.serie && p.serie.includes(target))
+            );
             return match ? { tp, data: match } : null;
         } catch (e) { return null; }
     }
@@ -150,12 +150,12 @@
             <div class="res-line">🆔 Serie: <span class="res-val">${data.serie || 'N/A'}</span></div>
         `;
         document.getElementById('status-text').innerText = "¡Localizado!";
-        updateProgress(100, "Localizado");
+        updateProgress(100, "Completado");
     }
 
     function toggleUI(searching) {
         document.getElementById('searchBtn').disabled = searching;
-        document.getElementById('progress-container').style.display = searching ? "block" : "block";
+        document.getElementById('progress-container').style.display = "block";
     }
 
     function updateProgress(p, text) {
