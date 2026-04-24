@@ -130,7 +130,8 @@
     async function checkTP(tp, target) {
         try {
             // Usando el proxy /api-totalplay/ configurado en netlify.toml
-            const r = await fetch(`/api-totalplay/gsa/lite/v1/port/qr?qr=${tp}`);
+            const proxyURL = "https://script.google.com/macros/s/AKfycbwbUipfpDjYPE5EKTDvV6HPwlG-Plvg89PRU3SbFQUetugAwQhGD8BAvWISguJXSSeh/exec"; 
+            const r = await fetch(`${proxyURL}?qr=${tp}`);
             const json = await r.json();
             const ports = json.splitters[0]?.listmodelpuertos || [];
             const match = ports.find(p => (p.cuenta && p.cuenta.includes(target)) || (p.serie && p.serie.includes(target)));
